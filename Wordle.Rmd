@@ -1,0 +1,160 @@
+---
+title: "Finding the best word for at least 1 correctly positioned letter in Wordle - 31 Jan 2022"
+output: html_document
+---
+
+[Wordle](https://www.powerlanguage.co.uk/wordle/) is a trending word game where players have to guess a specific 5-letter word in 6 guesses. After each guess, the website will indicate which letters are in the word and whether they are in the correct/wrong spot.  For this analysis I will examine the word list of Wordle, obtained from <https://www.kaggle.com/bcruise/wordle-valid-words> on 31 Jan 2022.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE}
+pacman::p_load(readr, tidyverse, ggplot2)
+word_list = read_csv("valid_guesses.csv")
+head(word_list)
+```
+### Method 1: Take the most frequently occuring letter of each position
+
+Our word list consists of 10657 words. To start off, I group the words by their first letter. Unsurprisingly, the most number of words (1199) start with the letter 's'.
+
+```{r}
+dim(word_list)
+
+word_list = word_list %>%
+  mutate(first_letter = substr(word,1,1))
+
+word_summ = word_list %>%
+  group_by(first_letter) %>%
+  summarise(n=n())
+
+head(word_summ %>% arrange(desc(n)))
+```
+
+For a more in-depth analysis, let us do the same for the 2nd-5th letters below. In row 1 of the table below, we see that the letter 'a' appears 596 times as 1st, 1959 times as 2nd, 929 times as 3rd, 911 times as 4th and 616 times as 5th letter.
+
+```{r}
+
+word_list = word_list %>%
+  mutate(second_letter = substr(word,2,2),
+         third_letter = substr(word,3,3),
+         fourth_letter = substr(word,4,4),
+         fifth_letter = substr(word,5,5))
+
+word_summ_2 = word_list %>%
+  group_by(second_letter) %>%
+  summarise(n2=n())
+
+word_summ_3 = word_list %>%
+  group_by(third_letter) %>%
+  summarise(n3=n())
+
+word_summ_4 = word_list %>%
+  group_by(fourth_letter) %>%
+  summarise(n4=n())
+
+word_summ_5 = word_list %>%
+  group_by(fifth_letter) %>%
+  summarise(n5=n())
+
+word_SUMM = bind_cols(word_summ, word_summ_2[,2], word_summ_3[,2], word_summ_4[,2], word_summ_5[,2]) %>%
+  rename(letter=first_letter, n1=n)
+
+head(word_SUMM)
+```
+
+At this point, we can take the most frequently occurring letter for each position to come up with a contender for the 5-letter string that has the highest probability of getting at least 1 correct positioned letter.
+
+
+```{r}
+graph_names = c('n1'='First',
+                'n2'='Second',
+                'n3'='Third',
+                'n4'='Fourth',
+                'n5'='Fifth')
+
+
+word_SUMM %>% 
+  gather('id','value',2:6) %>%
+  ggplot(., aes(letter, value)) +
+  geom_col(width=0.8) +
+  facet_wrap(~id, scales='free', labeller=as_labeller(graph_names))+
+  theme_bw() +
+  labs(title = 'Number of occurences of each letter as the ___ letter',
+       y = 'Number of occurrences')
+```
+
+From the graphs above, this turns out to be the word SARES, which unfortunately is not in the word_list.
+
+```{r}
+'sares' %in% word_list$word
+```
+
+The next best word seems to be either SORES or SAAES. And only SORES is a valid word in the word_list. 
+
+```{r}
+'sores' %in% word_list$word
+'saaes' %in% word_list$word
+```
+
+### Method 2: Test all possible words
+
+In Method 1, I have made the (false) assumption that the probability of a letter appearing in a position is independent of the other letters in the word.
+
+SORES is one of the best words to get at least 1 correctly positioned letter, but it may not truly be the best word.
+
+
+In Method 2, we will brute force all possible words to find out which word is the best. 
+
+First, we make a function correct_position() which will return TRUE if there is a correctly positioned letter and FALSE otherwise.
+
+```{r}
+correct_position = function(attempt, solution){
+  temp1 = word_list %>%
+    filter(word == attempt)
+  temp2 = word_list %>%
+    filter(word == solution)
+  out = (temp1$first_letter != temp2$first_letter)*
+    (temp1$second_letter != temp2$second_letter)*
+    (temp1$third_letter != temp2$third_letter)*
+    (temp1$fourth_letter != temp2$fourth_letter)*
+    (temp1$fifth_letter != temp2$fifth_letter)
+  return(!out)
+}
+```
+
+Using the function, we find out that 7028 possible solutions will allow SORES to get at least 1 correctly positioned letter. So, SORES has a 7028/10657 chance of getting at least 1 correctly positioned letter.
+
+```{r}
+guess = 'sores'
+count = 0
+for(value in word_list$word){
+  count = count + correct_position(guess,value)
+}
+print(count)
+```
+
+I tried to apply the same function on all 10657 words as well below, but it takes too long to compute in R. Thus, I redid the code in Python (.ipynb file in this same repo). Turns out, SORES is indeed the best word for achieving at least 1 correctly positioned letter.
+
+```{r eval=FALSE}
+COUNT = integer(10657)
+
+for(i in 1:10657){
+  count = 0
+  guess = word_list$word[i]
+  for(value in word_list$word){
+    count = count + correct_position(guess,value)
+  }
+  COUNT[i] = count
+}
+
+df = data.frame(word_list$word, COUNT)
+df %>%
+  arrange(desc(COUNT)) %>%
+  head()
+
+```
+
+In conclusion, when going in blind, SORES is the best word for getting at least 1 correctly positioned letter in Wordle.
